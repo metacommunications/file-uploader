@@ -21,6 +21,7 @@ qq.FineUploaderBasic = function(o){
             allowedExtensions: [],
             sizeLimit: 0,
             minSizeLimit: 0,
+            itemLimit: 0,
             stopOnFirstInvalidFile: true
         },
         callbacks: {
@@ -49,6 +50,7 @@ qq.FineUploaderBasic = function(o){
             minSizeError: "{file} is too small, minimum file size is {minSizeLimit}.",
             emptyError: "{file} is empty, please select files again without it.",
             noFilesError: "No files to upload.",
+            tooManyItemsError: "Too many items ({netItems}) would be in progress or queued.  Item limit is {itemLimit}.",
             onLeave: "The files are being uploaded, if you leave now the upload will be cancelled."
         },
         retry: {
@@ -116,14 +118,12 @@ qq.FineUploaderBasic = function(o){
     this._wrapCallbacks();
     this._disposeSupport =  new qq.DisposeSupport();
 
-    // number of files being uploaded
     this._filesInProgress = [];
-
     this._storedIds = [];
-
     this._autoRetries = [];
     this._retryTimeouts = [];
     this._preventRetries = [];
+    this._netFilesUploadedOrQueued = 0;
 
     this._paramsStore = this._createParamsStore("request");
     this._deleteFileParamsStore = this._createParamsStore("deleteFile");
@@ -555,7 +555,7 @@ qq.FineUploaderBasic.prototype = {
                 this._autoRetries[id] = 0;
             }
 
-            return this._autoRetries[id] < this._options.retry.maxAutoAttempts
+            return this._autoRetries[id] < this._options.retry.maxAutoAttempts;
         }
 
         return false;
@@ -595,12 +595,11 @@ qq.FineUploaderBasic.prototype = {
         }
     },
     _uploadFileOrBlobDataList: function(fileOrBlobDataList){
-        var validationDescriptors, index, batchInvalid;
+        var index,
+            validationDescriptors = this._getValidationDescriptors(fileOrBlobDataList),
+            batchValid = this._isBatchValid(validationDescriptors);
 
-        validationDescriptors = this._getValidationDescriptors(fileOrBlobDataList);
-        batchInvalid = this._options.callbacks.onValidateBatch(validationDescriptors) === false;
-
-        if (!batchInvalid) {
+        if (batchValid) {
             if (fileOrBlobDataList.length > 0) {
                 for (index = 0; index < fileOrBlobDataList.length; index++){
                     if (this._validateFileOrBlobData(fileOrBlobDataList[index])){
@@ -613,7 +612,7 @@ qq.FineUploaderBasic.prototype = {
                 }
             }
             else {
-                this._error('noFilesError', "");
+                this._itemError("noFilesError", "");
             }
         }
     },
@@ -634,6 +633,29 @@ qq.FineUploaderBasic.prototype = {
     _storeForLater: function(id) {
         this._storedIds.push(id);
     },
+    _isBatchValid: function(validationDescriptors) {
+        //first, defer the check to the callback (ask the integrator)
+        var errorMessage,
+            itemLimit = this._options.validation.itemLimit,
+            proposedNetFilesUploadedOrQueued = this._netFilesUploadedOrQueued + validationDescriptors.length,
+            batchValid = this._options.callbacks.onValidateBatch(validationDescriptors) !== false;
+
+        //if the callback hasn't rejected the batch, run some internal tests on the batch next
+        if (batchValid) {
+            if (this._options.validation.fileLimit === 0 || proposedNetFilesUploadedOrQueued <= itemLimit) {
+                batchValid = true;
+            }
+            else {
+                batchValid = false;
+                errorMessage = this._options.messages.tooManyItemsError
+                    .replace(/\{netItems\}/g, proposedNetFilesUploadedOrQueued)
+                    .replace(/\{itemLimit\}/g, itemLimit);
+                this._batchError(errorMessage);
+            }
+        }
+
+        return batchValid;
+    },
     _validateFileOrBlobData: function(fileOrBlobData){
         var validationDescriptor, name, size;
 
@@ -646,28 +668,28 @@ qq.FineUploaderBasic.prototype = {
         }
 
         if (qq.isFileOrInput(fileOrBlobData) && !this._isAllowedExtension(name)){
-            this._error('typeError', name);
+            this._itemError('typeError', name);
             return false;
 
         }
         else if (size === 0){
-            this._error('emptyError', name);
+            this._itemError('emptyError', name);
             return false;
 
         }
         else if (size && this._options.validation.sizeLimit && size > this._options.validation.sizeLimit){
-            this._error('sizeError', name);
+            this._itemError('sizeError', name);
             return false;
 
         }
         else if (size && size < this._options.validation.minSizeLimit){
-            this._error('minSizeError', name);
+            this._itemError('minSizeError', name);
             return false;
         }
 
         return true;
     },
-    _error: function(code, name){
+    _itemError: function(code, name){
         var message = this._options.messages[code];
         function r(name, replacement){ message = message.replace(name, replacement); }
 
@@ -681,6 +703,9 @@ qq.FineUploaderBasic.prototype = {
         this._options.callbacks.onError(null, name, message);
 
         return message;
+    },
+    _batchError: function(message) {
+        this._options.callbacks.onError(null, null, message);
     },
     _isAllowedExtension: function(fileName){
         var allowed = this._options.validation.allowedExtensions,

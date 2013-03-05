@@ -243,7 +243,7 @@ qq.extend(qq.FineUploader.prototype, {
                     }
                 },
                 error: function(code, filename) {
-                    self._error(code, filename);
+                    self._itemError(code, filename);
                 },
                 log: function(message, level) {
                     self.log(message, level);
@@ -581,8 +581,12 @@ qq.extend(qq.FineUploader.prototype, {
 
         qq(deleteLink).css({display: 'inline'});
     },
-    _error: function(code, name){
-        var message = qq.FineUploaderBasic.prototype._error.apply(this, arguments);
+    _itemError: function(code, name){
+        var message = qq.FineUploaderBasic.prototype._itemError.apply(this, arguments);
+        this._options.showMessage(message);
+    },
+    _batchError: function(message) {
+        qq.FineUploaderBasic.prototype._batchError.apply(this, arguments);
         this._options.showMessage(message);
     },
     _setupPastePrompt: function() {
