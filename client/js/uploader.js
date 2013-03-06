@@ -383,8 +383,9 @@ qq.extend(qq.FineUploader.prototype, {
     },
     //return false if we should not attempt the requested retry
     _onBeforeManualRetry: function(id) {
+        var item = this.getItemByFileId(id);
+
         if (qq.FineUploaderBasic.prototype._onBeforeManualRetry.apply(this, arguments)) {
-            var item = this.getItemByFileId(id);
             this._find(item, 'progressBar').style.width = 0;
             qq(item).removeClass(this._classes.fail);
             qq(this._find(item, 'statusText')).clearText();
@@ -392,7 +393,10 @@ qq.extend(qq.FineUploader.prototype, {
             this._showCancelLink(item);
             return true;
         }
-        return false;
+        else {
+            qq(item).addClass(this._classes.retryable);
+            return false;
+        }
     },
     _onSubmitDelete: function(id) {
         if (this._isDeletePossible()) {
